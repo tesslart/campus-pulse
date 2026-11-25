@@ -26,6 +26,24 @@ create table if not exists public.events (
   created_at  timestamptz not null default now()
 );
 
+-- ---------------------------------------------------------------------
+-- 1.1 Медиа события (миграция 002): фото и видео
+--     photos    — пути файлов в Storage (bucket event-media), до 6 шт.,
+--                 первый файл — обложка карточки;
+--     video_url — ссылка на YouTube / Rutube / VK Видео.
+--     ADD COLUMN IF NOT EXISTS — можно выполнить на уже созданной базе.
+-- ---------------------------------------------------------------------
+alter table public.events add column if not exists photos    text[] not null default '{}';
+alter table public.events add column if not exists video_url text;
+
+alter table public.events drop constraint if exists events_photos_check;
+alter table public.events add  constraint events_photos_check
+  check (cardinality(photos) <= 6);
+
+alter table public.events drop constraint if exists events_video_url_check;
+alter table public.events add  constraint events_video_url_check
+  check (video_url is null or (char_length(video_url) <= 300 and video_url ~ '^https://'));
+
 create index if not exists events_starts_at_idx  on public.events (starts_at);
 create index if not exists events_creator_id_idx on public.events (creator_id);
 create index if not exists events_category_idx   on public.events (category);
@@ -58,9 +76,9 @@ grant select on table public.events to anon, authenticated;
 
 -- Пользователь пишет только "контентные" колонки.
 -- id, creator_id, created_at задаёт сама БД — подменить автора нельзя.
-grant insert (title, description, category, starts_at, location, cover_style)
+grant insert (title, description, category, starts_at, location, cover_style, photos, video_url)
   on table public.events to authenticated;
-grant update (title, description, category, starts_at, location, cover_style)
+grant update (title, description, category, starts_at, location, cover_style, photos, video_url)
   on table public.events to authenticated;
 grant delete on table public.events to authenticated;
 
@@ -155,6 +173,51 @@ revoke all     on function public.event_members_count(uuid) from public, anon, a
 grant  execute on function public.event_members_count(uuid) to anon, authenticated;
 
 -- ---------------------------------------------------------------------
+-- 6. Supabase Storage: фото событий
+--    Публичный bucket: картинки афиши видны всем по ссылке.
+--    Загружать / удалять можно только в СВОЮ папку: <user_id>/<файл>.
+--    Лимит 5 МБ, только изображения — проверяется самим Storage.
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('event-media', 'event-media', true, 5242880,
+        array['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "event-media: read own files"         on storage.objects;
+drop policy if exists "event-media: upload to own folder"   on storage.objects;
+drop policy if exists "event-media: update own files"       on storage.objects;
+drop policy if exists "event-media: delete own files"       on storage.objects;
+
+-- SELECT нужен API Storage для удаления/перезаписи своих файлов.
+-- Публичные ссылки на картинки работают и без этой политики.
+create policy "event-media: read own files"
+  on storage.objects for select
+  to authenticated
+  using (bucket_id = 'event-media' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+create policy "event-media: upload to own folder"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'event-media'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+create policy "event-media: update own files"
+  on storage.objects for update
+  to authenticated
+  using      (bucket_id = 'event-media' and (storage.foldername(name))[1] = (select auth.uid())::text)
+  with check (bucket_id = 'event-media' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+create policy "event-media: delete own files"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'event-media' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- ---------------------------------------------------------------------
 -- Проверка: в Table Editor должны появиться events и event_members
--- со значком "RLS enabled".
+-- со значком "RLS enabled", в Storage — bucket event-media.
 -- ---------------------------------------------------------------------

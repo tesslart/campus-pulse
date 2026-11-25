@@ -23,7 +23,7 @@ export async function fetchMyMemberEventIds(userId) {
 export async function fetchMyJoinedEvents(userId) {
   const { data, error } = await supabase
     .from('event_members')
-    .select('joined_at, events (id, creator_id, title, description, category, starts_at, location, cover_style)')
+    .select('joined_at, events (id, creator_id, title, description, category, starts_at, location, cover_style, photos, video_url)')
     .eq('user_id', userId)
     .order('joined_at', { ascending: false });
   if (error) throw error;

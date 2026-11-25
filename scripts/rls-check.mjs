@@ -102,6 +102,20 @@ if (evErr) { console.error('A не смог создать событие:', evE
   data?.length === 1 ? pass('T05', 'запись A не удалена пользователем B') : fail('T05', 'B удалил запись A!');
 }
 
+// MEDIA: Storage — только своя папка
+{
+  const png = new Blob([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))], { type: 'image/png' });
+  const ownPath = `${userA.id}/rls-test-${Date.now()}.png`;
+  const own = await a.storage.from('event-media').upload(ownPath, png, { contentType: 'image/png' });
+  const foreign = await b.storage.from('event-media').upload(`${userA.id}/hack-${Date.now()}.png`, png, { contentType: 'image/png' });
+  await b.storage.from('event-media').remove([ownPath]);
+  const { data: list } = await a.storage.from('event-media').list(userA.id, { search: ownPath.split('/')[1] });
+  const ok = !own.error && foreign.error && list?.length === 1;
+  ok ? pass('MEDIA', 'A загружает в свою папку, B не может загрузить к A и удалить файл A')
+     : fail('MEDIA', `own=${own.error?.message ?? 'ok'}, foreign=${foreign.error ? 'denied' : 'ALLOWED'}, fileLeft=${list?.length}`);
+  await a.storage.from('event-media').remove([ownPath]);
+}
+
 // Уборка: A удаляет своё событие (записи удалятся каскадно)
 await a.from('events').delete().eq('id', ev.id);
 await Promise.all([a.auth.signOut(), b.auth.signOut()]);

@@ -172,6 +172,52 @@ begin
   reset role;
 end $$;
 
+-- MEDIA. Фото и видео: своя папка в Storage, проверка ссылки -----
+do $$
+declare v_id uuid := (select event_id from t_ctx); n int;
+begin
+  -- А добавляет фото и видео в своё событие
+  perform pg_temp.login_as('00000000-0000-4000-a000-00000000000a');
+  update public.events
+     set photos = array['00000000-0000-4000-a000-00000000000a/cover.webp'],
+         video_url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+   where id = v_id;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL MEDIA: автор не смог добавить фото/видео'; end if;
+
+  begin
+    update public.events set video_url = 'javascript:alert(1)' where id = v_id;
+    raise exception 'FAIL MEDIA: принята небезопасная ссылка на видео';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.events set photos = array['1','2','3','4','5','6','7'] where id = v_id;
+    raise exception 'FAIL MEDIA: принято больше 6 фото';
+  exception when check_violation then null;
+  end;
+
+  -- Storage: загрузка в свою папку разрешена
+  insert into storage.objects (bucket_id, name)
+  values ('event-media', '00000000-0000-4000-a000-00000000000a/test.webp');
+
+  -- Б не может загрузить файл в папку А
+  perform pg_temp.login_as('00000000-0000-4000-a000-00000000000b');
+  begin
+    insert into storage.objects (bucket_id, name)
+    values ('event-media', '00000000-0000-4000-a000-00000000000a/fake.webp');
+    raise exception 'FAIL MEDIA: Б загрузил файл в папку А';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Б не видит файлы А через API (только публичные ссылки на картинки)
+  select count(*) into n from storage.objects
+   where name like '00000000-0000-4000-a000-00000000000a/%';
+  if n <> 0 then raise exception 'FAIL MEDIA: Б видит файлы А в storage.objects'; end if;
+  raise notice 'PASS MEDIA: фото/видео добавляет только автор, ссылки проверяются, Storage — только своя папка';
+  reset role;
+end $$;
+
 -- Владелец удаляет своё событие, записи удаляются каскадно ----------
 do $$
 declare v_id uuid := (select event_id from t_ctx); n int;

@@ -2,9 +2,21 @@ import { esc } from '../lib/dom.js';
 import { CATEGORY_LABEL } from '../lib/constants.js';
 import { cardDate, isPast } from '../lib/format.js';
 import { categoryIcon, icons } from './icons.js';
+import { photoUrl } from '../features/media.js';
 
-/** Обложка карточки: цвет cover_style + пиктограмма категории + декоративное кольцо. */
-export function cover(event, size = 'card') {
+/**
+ * Обложка карточки: первое фото события или цвет cover_style + пиктограмма категории.
+ * @param {object} event
+ * @param {'card'|'hero'} size
+ * @param {string} [previewSrc] — локальный blob: для предпросмотра в форме
+ */
+export function cover(event, size = 'card', previewSrc = '') {
+  const src = previewSrc || (event.photos?.length ? photoUrl(event.photos[0]) : '');
+  if (src) {
+    return `<div class="cover cover--photo cover--${size}" aria-hidden="true">
+        <img src="${esc(src)}" alt="" loading="lazy" decoding="async" />
+      </div>`;
+  }
   return `<div class="cover cover--${esc(event.cover_style)} cover--${size}" aria-hidden="true">
       <span class="cover__icon">${categoryIcon(event.category, size === 'card' ? 36 : 48)}</span>
       <span class="cover__ring"></span>
@@ -23,9 +35,16 @@ export function eventCard(event, { isMine = false, joined = false } = {}) {
     joined ? '<span class="badge badge--mint">Вы участвуете</span>' : '',
     past ? '<span class="badge">Прошло</span>' : '',
   ].join('');
+  const media = [
+    event.video_url ? `<span class="media-pill">${icons.play(14)} Видео</span>` : '',
+    event.photos?.length > 1 ? `<span class="media-pill">${icons.image(14)} ${event.photos.length}</span>` : '',
+  ].join('');
   return `
     <a class="card ${past ? 'card--past' : ''}" href="#/event/${esc(event.id)}" data-category="${esc(event.category)}">
-      ${cover(event)}
+      <div class="card__cover">
+        ${cover(event)}
+        ${media ? `<div class="card__media">${media}</div>` : ''}
+      </div>
       ${badges ? `<div class="card__badges">${badges}</div>` : ''}
       <div class="card__body">
         <span class="eyebrow">${esc(CATEGORY_LABEL[event.category] ?? event.category)}</span>

@@ -27,6 +27,11 @@ export function humanizeError(error, fallback = 'Что-то пошло не т�
   if (code === 'PGRST116') return 'Запись не найдена.';
   if (code === 'PGRST301' || /JWT expired/i.test(msg)) return 'Сессия истекла. Войдите заново.';
 
+  // Supabase Storage
+  if (/Bucket not found/i.test(msg)) return 'Хранилище фото не настроено: выполните supabase/schema.sql в Supabase.';
+  if (/mime type|invalid_mime/i.test(msg)) return 'Этот формат файла не поддерживается. Используйте JPG, PNG, WEBP или GIF.';
+  if (/maximum allowed size|Payload too large|entity too large/i.test(msg)) return 'Файл слишком большой (максимум 5 МБ).';
+
   // Supabase Auth
   if (/Invalid login credentials/i.test(msg)) return 'Неверный email или пароль.';
   if (/Email not confirmed/i.test(msg)) return 'Email не подтверждён. Откройте письмо и перейдите по ссылке.';

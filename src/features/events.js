@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabaseClient.js';
 
-const EVENT_FIELDS = 'id, creator_id, title, description, category, starts_at, location, cover_style, created_at';
+const EVENT_FIELDS =
+  'id, creator_id, title, description, category, starts_at, location, cover_style, photos, video_url, created_at';
 
 /** Экранирование спецсимволов шаблона ILIKE, чтобы поиск «50%» работал буквально. */
 const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`);

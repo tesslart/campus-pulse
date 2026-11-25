@@ -22,6 +22,12 @@ export const icons = {
   eye: (s) => svg('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>', s),
   eyeOff: (s) => svg('<path d="M17.9 17.9A10 10 0 0112 20C5 20 1 12 1 12a18 18 0 015.1-5.9M9.9 4.2A9 9 0 0112 4c7 0 11 8 11 8a18 18 0 01-2.2 3.2M1 1l22 22M14.1 14.1a3 3 0 01-4.2-4.2"/>', s),
   logout: (s) => svg('<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>', s),
+  play: (s) => svg('<path d="M7 4v16l13-8z" fill="currentColor"/>', s),
+  image: (s) => svg('<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>', s),
+  upload: (s) => svg('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>', s),
+  chevronLeft: (s) => svg('<path d="M15 18l-6-6 6-6"/>', s),
+  chevronRight: (s) => svg('<path d="M9 18l6-6-6-6"/>', s),
+  star: (s) => svg('<path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>', s),
   refresh: (s) => svg('<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0114.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0020.5 15"/>', s),
 };
 

@@ -8,7 +8,8 @@ import { dayMonth, shortDateTime, longDate, isPast, pluralRu } from '../lib/form
 import { errorState, loader, emptyState } from '../ui/components.js';
 import { icons, categoryIcon } from '../ui/icons.js';
 import { openAuthModal } from '../ui/authModal.js';
-import { confirmDialog } from '../ui/modal.js';
+import { confirmDialog, openModal } from '../ui/modal.js';
+import { photoUrl, parseVideoUrl, removePhotos } from '../features/media.js';
 import { toast } from '../ui/toast.js';
 import { navigate, setLastDeleted } from '../router.js';
 
@@ -37,12 +38,17 @@ export async function renderDetail(root, { id }) {
 
   const { day, month } = dayMonth(event.starts_at);
   const past = isPast(event.starts_at);
+  const photos = event.photos ?? [];
+  const video = event.video_url ? parseVideoUrl(event.video_url) : null;
+  const heroPhoto = photos.length ? photoUrl(photos[0]) : '';
 
   root.innerHTML = `
     ${backLink()}
     <article class="detail">
-      <header class="detail__hero cover--${esc(event.cover_style)}">
-        <div class="detail__hero-deco" aria-hidden="true">${categoryIcon(event.category, 160)}</div>
+      <header class="detail__hero ${heroPhoto ? 'detail__hero--photo' : `cover--${esc(event.cover_style)}`}">
+        ${heroPhoto
+          ? `<img class="detail__hero-img" src="${esc(heroPhoto)}" alt="" />`
+          : `<div class="detail__hero-deco" aria-hidden="true">${categoryIcon(event.category, 160)}</div>`}
         <div class="detail__hero-text">
           <span class="eyebrow eyebrow--light">CAMPUS / ${CATEGORY_SLUG[event.category] ?? ''} · ${esc(CATEGORY_LABEL[event.category] ?? '')}</span>
           <h1 class="detail__title">${esc(event.title)}</h1>
@@ -57,6 +63,24 @@ export async function renderDetail(root, { id }) {
         <section class="detail__about">
           <h2 class="section-title">О событии</h2>
           <p class="detail__description">${esc(event.description)}</p>
+
+          ${video ? `
+          <h2 class="section-title section-title--spaced">Видео</h2>
+          <div class="video-frame">
+            <iframe src="${esc(video.embedUrl)}" title="Видео: ${esc(event.title)}" loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+              allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+          </div>
+          <a class="video-link" href="${esc(event.video_url)}" target="_blank" rel="noopener noreferrer">Открыть на ${esc(video.provider)} ↗</a>` : ''}
+
+          ${photos.length ? `
+          <h2 class="section-title section-title--spaced">Фото <span class="section-title__count">${photos.length}</span></h2>
+          <div class="gallery">
+            ${photos.map((p, i) => `
+              <button class="gallery__item" type="button" data-photo="${i}" aria-label="Открыть фото ${i + 1} из ${photos.length}">
+                <img src="${esc(photoUrl(p))}" alt="" loading="lazy" decoding="async" />
+              </button>`).join('')}
+          </div>` : ''}
         </section>
 
         <aside class="panel detail__panel" aria-label="Участие">
@@ -135,7 +159,9 @@ export async function renderDetail(root, { id }) {
 
   root.addEventListener('click', async (e) => {
     const user = getUser();
-    if (e.target.closest('[data-login]')) {
+    if (e.target.closest('[data-photo]')) {
+      openLightbox(photos.map(photoUrl), Number(e.target.closest('[data-photo]').dataset.photo), event.title);
+    } else if (e.target.closest('[data-login]')) {
       openAuthModal('login', 'Войдите, чтобы записаться на событие.');
     } else if (e.target.closest('[data-recheck]')) {
       renderJoin();
@@ -162,6 +188,7 @@ export async function renderDetail(root, { id }) {
       btn.classList.add('is-loading');
       try {
         await deleteEvent(event.id);
+        removePhotos(photos); // файлы события больше не нужны
         setLastDeleted(event.title);
         navigate('/deleted');
       } catch (err) {
@@ -181,4 +208,44 @@ export async function renderDetail(root, { id }) {
 
 function backLink() {
   return `<a class="back-link" href="#/">${icons.back(18)} Назад к событиям</a>`;
+}
+
+/** Просмотр фото на весь экран: стрелки, свайп, Esc. */
+function openLightbox(urls, start, title) {
+  let index = start;
+  const { dialog } = openModal(
+    `<figure class="lightbox">
+       <img class="lightbox__img" alt="" />
+       <figcaption class="lightbox__caption"></figcaption>
+       ${urls.length > 1 ? `
+         <button class="lightbox__nav lightbox__nav--prev icon-btn" type="button" data-prev aria-label="Предыдущее фото">${icons.chevronLeft(28)}</button>
+         <button class="lightbox__nav lightbox__nav--next icon-btn" type="button" data-next aria-label="Следующее фото">${icons.chevronRight(28)}</button>` : ''}
+     </figure>`,
+    { className: 'modal--lightbox' },
+  );
+  const img = dialog.querySelector('.lightbox__img');
+  const caption = dialog.querySelector('.lightbox__caption');
+  const show = (i) => {
+    index = (i + urls.length) % urls.length;
+    img.src = urls[index];
+    img.alt = `${title} — фото ${index + 1}`;
+    caption.textContent = `${index + 1} / ${urls.length}`;
+  };
+  dialog.addEventListener('click', (e) => {
+    if (e.target.closest('[data-prev]')) show(index - 1);
+    if (e.target.closest('[data-next]')) show(index + 1);
+  });
+  dialog.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') show(index - 1);
+    if (e.key === 'ArrowRight') show(index + 1);
+  });
+  let touchX = null;
+  img.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  img.addEventListener('touchend', (e) => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+    touchX = null;
+  });
+  show(index);
 }

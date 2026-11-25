@@ -1,6 +1,7 @@
 import { createEvent, updateEvent, fetchEvent } from '../features/events.js';
 import { getUser } from '../features/auth.js';
-import { CATEGORIES, CATEGORY_LABEL, COVER_STYLES, LIMITS } from '../lib/constants.js';
+import { CATEGORIES, CATEGORY_LABEL, COVER_STYLES, LIMITS, MEDIA } from '../lib/constants.js';
+import { parseVideoUrl, photoUrl, uploadPhoto, removePhotos, checkImageFile } from '../features/media.js';
 import { esc } from '../lib/dom.js';
 import { humanizeError } from '../lib/errors.js';
 import { toLocalInput, cardDate } from '../lib/format.js';
@@ -36,6 +37,12 @@ export function validateEvent(values) {
   else if (len(values.description) < d.min || len(values.description) > d.max) errors.description = `Описание: от ${d.min} до ${d.max} символов.`;
 
   if (!COVER_STYLES.some((c) => c.id === values.cover_style)) errors.cover_style = 'Выберите стиль обложки.';
+
+  if (values.video_url?.trim()) {
+    if (values.video_url.trim().length > 300) errors.video_url = 'Слишком длинная ссылка.';
+    else if (!parseVideoUrl(values.video_url)) errors.video_url = 'Вставьте ссылку на видео YouTube, Rutube или VK Видео.';
+  }
+  if ((values.photosCount ?? 0) > MEDIA.maxPhotos) errors.photos = `Не больше ${MEDIA.maxPhotos} фото.`;
   return errors;
 }
 
@@ -56,6 +63,7 @@ export async function renderForm(root, { id } = {}) {
 
   let initial = {
     title: '', category: 'hobby', starts_at: '', location: '', description: '', cover_style: 'lavender',
+    photos: [], video_url: '',
   };
 
   if (id) {
@@ -108,7 +116,19 @@ export async function renderForm(root, { id } = {}) {
              counter('description', initial.description, LIMITS.description.max))}
 
         <fieldset class="field">
-          <legend class="field__label">Цвет обложки</legend>
+          <legend class="field__label">Фото <span class="field__hint">до ${MEDIA.maxPhotos} шт. · первое станет обложкой</span></legend>
+          <div class="media-grid" id="media-grid"></div>
+          <input class="sr-only" type="file" id="f-photos" accept="${MEDIA.allowedTypes.join(',')}" multiple tabindex="-1" />
+          <p class="field__error" id="f-photos-error"></p>
+        </fieldset>
+
+        ${field('video_url', 'Видео', `<input class="input" id="f-video_url" name="video_url" type="url" inputmode="url" maxlength="300"
+             placeholder="Ссылка на YouTube, Rutube или VK Видео" value="${esc(initial.video_url ?? '')}" />`,
+             '<span class="field__counter">необязательно</span>')}
+        <p class="video-status" id="video-status" aria-live="polite"></p>
+
+        <fieldset class="field">
+          <legend class="field__label">Цвет обложки <span class="field__hint">если нет фото</span></legend>
           <div class="swatches">
             ${COVER_STYLES.map((c) => `
               <label class="swatch">
@@ -138,6 +158,76 @@ export async function renderForm(root, { id } = {}) {
   const submit = form.querySelector('[type="submit"]');
   const alertBox = form.querySelector('.form-alert');
   const touched = new Set();
+  const FIELDS = ['title', 'category', 'starts_at', 'location', 'description', 'photos', 'video_url', 'cover_style'];
+
+  /** Фото в форме: уже загруженные (path) и новые (file + локальный предпросмотр). */
+  const originalPaths = [...(initial.photos ?? [])];
+  let photos = originalPaths.map((path) => ({ path, src: photoUrl(path) }));
+  const grid = root.querySelector('#media-grid');
+  const fileInput = root.querySelector('#f-photos');
+
+  function renderPhotos() {
+    grid.innerHTML = photos.map((p, i) => `
+      <div class="media-thumb">
+        <img src="${esc(p.src)}" alt="Фото ${i + 1}" />
+        ${i === 0 ? '<span class="media-thumb__badge">Обложка</span>' : ''}
+        <div class="media-thumb__actions">
+          ${i > 0 ? `<button class="media-thumb__btn" type="button" data-cover="${i}" aria-label="Сделать фото ${i + 1} обложкой" title="Сделать обложкой">${icons.star(16)}</button>` : ''}
+          <button class="media-thumb__btn" type="button" data-remove="${i}" aria-label="Удалить фото ${i + 1}" title="Удалить">${icons.close(16)}</button>
+        </div>
+      </div>`).join('') + (photos.length < MEDIA.maxPhotos ? `
+      <button class="media-add" type="button" data-add>
+        ${icons.upload(24)}
+        <span>Добавить фото</span>
+        <small>или перетащите сюда</small>
+      </button>` : '');
+    updatePreview();
+  }
+
+  function addFiles(files) {
+    const errorsList = [];
+    for (const file of files) {
+      if (photos.length >= MEDIA.maxPhotos) { errorsList.push(`Можно добавить не больше ${MEDIA.maxPhotos} фото.`); break; }
+      const err = checkImageFile(file);
+      if (err) { errorsList.push(err); continue; }
+      photos.push({ file, src: URL.createObjectURL(file) });
+    }
+    root.querySelector('#f-photos-error').textContent = errorsList.join(' ');
+    renderPhotos();
+  }
+
+  grid.addEventListener('click', (e) => {
+    if (e.target.closest('[data-add]')) return fileInput.click();
+    const rm = e.target.closest('[data-remove]');
+    if (rm) {
+      const [removed] = photos.splice(Number(rm.dataset.remove), 1);
+      if (removed.file) URL.revokeObjectURL(removed.src);
+      root.querySelector('#f-photos-error').textContent = '';
+      renderPhotos();
+      grid.querySelector('[data-add], [data-remove]')?.focus();
+    }
+    const cv = e.target.closest('[data-cover]');
+    if (cv) {
+      const [item] = photos.splice(Number(cv.dataset.cover), 1);
+      photos.unshift(item);
+      renderPhotos();
+    }
+  });
+  fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+  grid.addEventListener('dragover', (e) => { e.preventDefault(); grid.classList.add('is-dragover'); });
+  grid.addEventListener('dragleave', () => grid.classList.remove('is-dragover'));
+  grid.addEventListener('drop', (e) => {
+    e.preventDefault();
+    grid.classList.remove('is-dragover');
+    addFiles([...e.dataTransfer.files]);
+  });
+
+  function updateVideoStatus() {
+    const raw = form.elements.video_url.value.trim();
+    const info = raw ? parseVideoUrl(raw) : null;
+    const el = root.querySelector('#video-status');
+    el.innerHTML = info ? `${icons.check(16)} Видео ${esc(info.provider)} будет показано на странице события` : '';
+  }
 
   const values = () => ({
     title: form.elements.title.value,
@@ -146,10 +236,12 @@ export async function renderForm(root, { id } = {}) {
     location: form.elements.location.value,
     description: form.elements.description.value,
     cover_style: form.querySelector('[name="cover_style"]:checked')?.value ?? '',
+    video_url: form.elements.video_url.value,
+    photosCount: photos.length,
   });
 
   function showErrors(errors, onlyTouched = false) {
-    for (const name of ['title', 'category', 'starts_at', 'location', 'description', 'cover_style']) {
+    for (const name of FIELDS) {
       const msg = onlyTouched && !touched.has(name) ? '' : errors[name] ?? '';
       const errEl = root.querySelector(`#f-${name}-error`);
       errEl.textContent = msg;
@@ -165,7 +257,7 @@ export async function renderForm(root, { id } = {}) {
     const v = values();
     root.querySelector('#preview').innerHTML = `
       <div class="card card--preview">
-        ${cover({ category: v.category, cover_style: v.cover_style || 'lavender' })}
+        ${cover({ category: v.category, cover_style: v.cover_style || 'lavender' }, 'card', photos[0]?.src)}
         <div class="card__body">
           <span class="eyebrow">${esc(CATEGORY_LABEL[v.category] ?? '')}</span>
           <h3 class="card__title">${esc(v.title.trim() || 'Название события')}</h3>
@@ -181,6 +273,7 @@ export async function renderForm(root, { id } = {}) {
 
   form.addEventListener('input', () => {
     updatePreview();
+    updateVideoStatus();
     showErrors(validateEvent(values()), true);
   });
   form.addEventListener('focusout', (e) => {
@@ -196,7 +289,7 @@ export async function renderForm(root, { id } = {}) {
 
     const v = values();
     const errors = validateEvent(v);
-    ['title', 'category', 'starts_at', 'location', 'description', 'cover_style'].forEach((n) => touched.add(n));
+    FIELDS.forEach((n) => touched.add(n));
     showErrors(errors);
     if (Object.keys(errors).length) {
       root.querySelector(`#f-${Object.keys(errors)[0]}`)?.focus();
@@ -210,28 +303,46 @@ export async function renderForm(root, { id } = {}) {
       location: v.location.trim(),
       description: v.description.trim(),
       cover_style: v.cover_style,
+      video_url: v.video_url.trim() || null,
     };
 
     const label = submit.textContent;
     submit.disabled = true;
     submit.classList.add('is-loading');
-    submit.textContent = id ? 'Сохраняем…' : 'Публикуем…';
+    const uploaded = []; // новые файлы этой попытки — удалим, если сохранить событие не получится
     try {
+      const fresh = photos.filter((p) => !p.path);
+      for (const [i, item] of fresh.entries()) {
+        submit.textContent = `Загружаем фото ${i + 1} из ${fresh.length}…`;
+        item.path = await uploadPhoto(user.id, item.file);
+        uploaded.push(item);
+      }
+      payload.photos = photos.map((p) => p.path);
+
+      submit.textContent = id ? 'Сохраняем…' : 'Публикуем…';
       const saved = id ? await updateEvent(id, payload) : await createEvent(payload);
+      // удалённые при редактировании фото больше не нужны в Storage
+      removePhotos(originalPaths.filter((p) => !payload.photos.includes(p)));
       toast(id ? 'Изменения сохранены' : 'Событие опубликовано!', 'success');
       navigate(`/event/${saved.id}`);
     } catch (err) {
       // Данные формы НЕ сбрасываются — пользователь может просто повторить отправку
       alertBox.hidden = false;
       alertBox.className = 'form-alert form-alert--error';
-      alertBox.textContent = `${humanizeError(err, 'Не удалось сохранить событие.')} Введённые данные сохранены в форме.`;
+      await removePhotos(uploaded.map((p) => p.path));
+      uploaded.forEach((p) => delete p.path);
+      const reason = err.code === 'file_too_large'
+        ? `Фото «${err.fileName}» больше ${MEDIA.maxFileMb} МБ даже после сжатия.`
+        : humanizeError(err, 'Не удалось сохранить событие.');
+      alertBox.textContent = `${reason} Введённые данные и фото сохранены в форме.`;
       submit.disabled = false;
       submit.classList.remove('is-loading');
       submit.textContent = label;
     }
   });
 
-  updatePreview();
+  renderPhotos();
+  updateVideoStatus();
   form.elements.title.focus();
   return { onUserChange: (u) => { if (!u) navigate('/'); } };
 }

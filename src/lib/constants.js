@@ -26,3 +26,12 @@ export const LIMITS = {
   location: { min: 3, max: 120 },
   password: { min: 6 },
 };
+
+/** Медиа события: фото в Supabase Storage + ссылка на видео. */
+export const MEDIA = {
+  bucket: 'event-media',
+  maxPhotos: 6,
+  maxFileMb: 5,
+  allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  maxSide: 1600, // фото уменьшаются в браузере до 1600 px по большей стороне
+};

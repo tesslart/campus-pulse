@@ -36,6 +36,7 @@
 | F08 | Адаптивность 375–1440 px: 3/2/1 колонки, нижнее меню на телефоне | `src/style.css` |
 | F09 | Issues, ветки, PR, review | `.github/`, `docs/GITHUB_WORKFLOW.md` |
 | F10 | GitHub Pages + реальный Supabase | `.github/workflows/deploy.yml` |
+| F11 | **Фото и видео события:** до 6 фото в Supabase Storage (сжатие в WEBP, обложка, галерея с просмотром на весь экран) и видео YouTube / Rutube / VK Видео | `src/features/media.js`, `src/views/form.js`, `src/views/detail.js` |
 
 ## Запуск локально
 
@@ -74,6 +75,8 @@ auth.users ─┐
 │ starts_at timestamptz│   PK (event_id, user_id) — повторная запись невозможна
 │ location 3–120       │
 │ cover_style          │
+│ photos text[] ≤ 6    │  → пути файлов в Storage (bucket event-media)
+│ video_url https://…  │
 │ created_at           │
 └──────────────────────┘
 ```
@@ -85,6 +88,8 @@ auth.users ─┐
 | Гость (`anon`) | читать афишу | создавать события и записи |
 | Автор | создавать, менять и удалять **свои** события | менять чужие события, подменять `creator_id` |
 | Участник | записываться и отменять **свою** запись | читать чужие записи, удалять чужие записи |
+
+**Storage (bucket `event-media`)**: публичное чтение картинок; загружать и удалять файлы можно только в своей папке `<user_id>/…`; лимит 5 МБ, только изображения.
 
 `creator_id` и `user_id` заполняются в БД через `default auth.uid()`; клиенту вообще не выдан GRANT на эти колонки. Количество участников отдаёт функция `event_members_count()` — только число, без персональных данных.
 
@@ -133,6 +138,10 @@ campus-pulse/
 | Форма | Телефон |
 |---|---|
 | ![](docs/screenshots/02-form.png) | ![](docs/screenshots/05-mobile-catalog.png) |
+
+| Фото и видео в форме | Страница события с медиа |
+|---|---|
+| ![](docs/screenshots/07-form-media.png) | ![](docs/screenshots/08-detail-media.png) |
 
 ## Безопасность данных
 
